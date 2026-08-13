@@ -1,0 +1,17 @@
+{
+	"ingest_url": "https://pulse.example.com/api/method/proxmox_monitor.host_health.ingest.push_status",
+	"api_key": "generate via the Monitored Host record's 'Generate / Regenerate Agent Key' button",
+	"api_secret": "shown once alongside api_key -- store it here, it cannot be retrieved again",
+
+	"bench_path": "/home/frappe/frappe-bench",
+	"site_name": "site1.local",
+
+	"services": [
+		{"service_name": "SSH", "unit_name": "ssh.service"},
+		{"service_name": "nginx", "unit_name": "nginx.service"},
+		{"service_name": "MariaDB", "unit_name": "mariadb.service"},
+		{"service_name": "Redis", "unit_name": "redis-server.service"}
+	],
+
+	"timeout_seconds": 10
+}

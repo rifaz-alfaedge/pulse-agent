@@ -4,7 +4,15 @@ authors = [
     { name = "AlfaEdge", email = "rifazmohammed@gmail.com"}
 ]
 description = "Push agent for alfaEdge Pulse Host Health monitoring"
-requires-python = ">=3.14"
+# Deliberately permissive: this app has to `bench get-app` cleanly onto
+# every guest in the fleet, which runs a mix of Frappe v15 (Python
+# 3.10/3.11) and v16 (newer) benches — unlike proxmox_monitor itself
+# (which only ever runs on the central Pulse site, so pins to whatever
+# Python that one site happens to run), this app's whole reason to exist
+# is being installable regardless of the target bench's version. Bump
+# the floor only if a real dependency needs it, not to match whatever
+# Python happens to be on the machine an install-app was scaffolded from.
+requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
@@ -25,7 +33,7 @@ packages = []
 
 [tool.ruff]
 line-length = 110
-target-version = "py314"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [

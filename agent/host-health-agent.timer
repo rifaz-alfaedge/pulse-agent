@@ -1,0 +1,13 @@
+[Unit]
+Description=Run alfaEdge Pulse Host Health push agent every 25s
+
+[Timer]
+# OnUnitActiveSec (not OnCalendar) so each run is spaced from the *end* of
+# the previous one — avoids overlapping runs stacking up if a push ever
+# takes longer than the interval (e.g. a slow `bench execute`).
+OnBootSec=15s
+OnUnitActiveSec=25s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

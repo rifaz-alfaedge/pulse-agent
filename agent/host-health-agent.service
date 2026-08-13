@@ -1,0 +1,13 @@
+[Unit]
+Description=alfaEdge Pulse Host Health push agent (one-shot, triggered by host-health-agent.timer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Replace with the bench's own OS user (the same one that runs bench itself)
+# — nothing this script does needs root, and it must run as this user to
+# have both read access to sites/*/site_config.json and permission to run
+# `bench execute` in that bench's own env.
+User=frappe
+ExecStart=/usr/bin/python3 /path/to/host_health_agent.py --config /etc/host-health-agent/config.json

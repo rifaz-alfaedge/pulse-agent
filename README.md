@@ -8,8 +8,9 @@ This is deliberately a tiny, dependency-free app. The guest fleet runs a mix of 
 
 - `pulse_agent/agent_collect.py` — runs inside the bench's own Frappe context via `bench execute`, reading RQ worker/queue/failed-job/scheduler data. This is the only part that needs to be a Frappe app.
 - `agent/host_health_agent.py` — the actual push agent. Plain standard-library Python, run standalone under systemd — not part of the installed app, doesn't import `frappe` directly.
+- `agent/install.py` — interactive installer that sets up everything below (steps 3–6) for you. See "Installing on a guest".
 - `agent/host-health-agent.service` / `agent/host-health-agent.timer` — systemd units (one-shot service triggered every ~25s by the timer).
-- `agent/config.example.json` — example agent config.
+- `agent/config.example.json` — example agent config, for the manual install path.
 
 ### Installing on a guest
 
@@ -21,28 +22,44 @@ This is deliberately a tiny, dependency-free app. The guest fleet runs a mix of 
    bench --site $SITE_NAME install-app pulse_agent
    ```
    (`install-app` is required even though this app has no doctypes — `bench execute` checks the site's installed-apps list.)
-3. Copy `agent/host_health_agent.py` and `agent/config.example.json` onto the guest (they don't need to live inside the bench — anywhere the systemd unit can reach them is fine), e.g.:
+3. Run the installer — no root needed to start it; it asks for your `sudo` password only when it actually needs to write a privileged file:
    ```bash
-   sudo mkdir -p /opt/host-health-agent /etc/host-health-agent
-   sudo cp agent/host_health_agent.py /opt/host-health-agent/
-   sudo cp agent/config.example.json /etc/host-health-agent/config.json
+   python3 apps/pulse_agent/agent/install.py
    ```
-4. Edit `/etc/host-health-agent/config.json`:
-   - `ingest_url` — `https://<pulse-domain>/api/method/proxmox_monitor.host_health.ingest.push_status` (this still points at the *central* Pulse site's `proxmox_monitor` app — only the collector moved, not the ingest endpoint)
-   - `api_key` / `api_secret` — from step 1
-   - `bench_path` / `site_name` — this guest's own bench/site (omit both if this guest runs no Frappe bench at all)
-   - `services` — adjust `unit_name`s to match the guest's actual distro (`ssh.service` vs `sshd.service`, `mariadb.service` vs `mysql.service`, etc.)
-5. Install the systemd units:
-   ```bash
-   sudo cp agent/host-health-agent.service agent/host-health-agent.timer /etc/systemd/system/
-   sudo $EDITOR /etc/systemd/system/host-health-agent.service   # set User= and ExecStart= paths
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now host-health-agent.timer
-   ```
-6. Verify:
+   It prompts for the OS user, bench path/site (auto-discovered), the Pulse dashboard's domain (just the domain — the API path is filled in for you), and the `api_key`/`api_secret` from step 1; auto-detects installed OS services (SSH/nginx/MariaDB/Redis) and lets you edit the list before continuing. It shows a full summary before writing anything, and — importantly — runs one real test push before enabling the systemd timer, so a wrong URL/key/path is caught immediately with a clear error instead of failing silently every ~25s under `journalctl`. Safe to re-run: it detects an existing install and asks before overwriting.
+4. Verify:
    ```bash
    sudo journalctl -u host-health-agent.service -f
    ```
+
+#### Manual installation
+
+If you'd rather do it by hand (or `install.py` doesn't fit your setup — e.g. an airgapped host), here's what it automates:
+
+```bash
+sudo mkdir -p /opt/host-health-agent /etc/host-health-agent
+sudo cp agent/host_health_agent.py /opt/host-health-agent/
+sudo cp agent/config.example.json /etc/host-health-agent/config.json
+```
+
+Edit `/etc/host-health-agent/config.json`:
+- `ingest_url` — `https://<pulse-domain>/api/method/proxmox_monitor.host_health.ingest.push_status` (this still points at the *central* Pulse site's `proxmox_monitor` app — only the collector moved, not the ingest endpoint)
+- `api_key` / `api_secret` — from step 1 above
+- `bench_path` / `site_name` — this guest's own bench/site (omit both if this guest runs no Frappe bench at all)
+- `services` — adjust `unit_name`s to match the guest's actual distro (`ssh.service` vs `sshd.service`, `mariadb.service` vs `mysql.service`, etc.)
+
+Install the systemd units:
+```bash
+sudo cp agent/host-health-agent.service agent/host-health-agent.timer /etc/systemd/system/
+sudo $EDITOR /etc/systemd/system/host-health-agent.service   # replace __PULSE_AGENT_USER__
+sudo systemctl daemon-reload
+sudo systemctl enable --now host-health-agent.timer
+```
+
+Run it once manually first to catch config mistakes immediately instead of discovering them a cycle later in `journalctl`:
+```bash
+sudo -u <user> /usr/bin/python3 /opt/host-health-agent/host_health_agent.py --config /etc/host-health-agent/config.json
+```
 
 ### License
 

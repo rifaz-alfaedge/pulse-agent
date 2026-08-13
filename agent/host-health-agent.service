@@ -5,9 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Replace with the bench's own OS user (the same one that runs bench itself)
-# — nothing this script does needs root, and it must run as this user to
-# have both read access to sites/*/site_config.json and permission to run
-# `bench execute` in that bench's own env.
-User=frappe
-ExecStart=/usr/bin/python3 /path/to/host_health_agent.py --config /etc/host-health-agent/config.json
+# The bench's own OS user (the same one that runs bench itself) — nothing
+# this script does needs root, and it must run as this user to have both
+# read access to sites/*/site_config.json and permission to run
+# `bench execute` in that bench's own env. Filled in by install.py; if
+# installing by hand, replace __PULSE_AGENT_USER__ yourself.
+User=__PULSE_AGENT_USER__
+ExecStart=/usr/bin/python3 /opt/host-health-agent/host_health_agent.py --config /etc/host-health-agent/config.json

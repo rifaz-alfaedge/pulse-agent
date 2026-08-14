@@ -68,6 +68,7 @@ def collect_bench_health() -> dict:
 					"queue_name": queue_name,
 					"failed_at": str(job.ended_at) if job.ended_at else None,
 					"exc_info": (job.exc_info or "")[:MAX_EXC_INFO_CHARS],
+					"job_name": _job_name(job),
 				}
 			)
 
@@ -86,6 +87,32 @@ def collect_bench_health() -> dict:
 		"failed_jobs": failed_jobs,
 		"scheduler_last_run": str(scheduler_last_run) if scheduler_last_run else None,
 	}
+
+
+def _job_name(job) -> str | None:
+	"""The enqueued method's dotted path, used server-side to group
+	failures by root cause (same method + same exception type).
+
+	NOT ``job.func_name`` — every job Frappe enqueues runs through
+	``frappe.utils.background_jobs.execute_job`` as the actual RQ target,
+	so ``func_name`` is the same constant string
+	("frappe.utils.background_jobs.execute_job") for every single job,
+	regardless of what it actually calls; confirmed live against a real
+	failed job. The real identity is one level down, in the kwargs Frappe's
+	own ``enqueue()`` passes to that dispatcher: ``job_name`` (its own "more
+	readable name", already falling back to the method's dotted path if the
+	caller didn't set one — see ``frappe.utils.background_jobs.enqueue``)
+	or, failing that, ``method`` itself.
+
+	Guarded the same way ``exc_info`` is already tolerated as possibly
+	unavailable — ``job.kwargs`` deserializes pickled data on first access,
+	and one unresolvable job shouldn't drop the whole failed-jobs list."""
+	try:
+		kwargs = job.kwargs or {}
+	except Exception:
+		return None
+	name = kwargs.get("job_name") or kwargs.get("method")
+	return name if isinstance(name, str) else None
 
 
 def _pid_alive(pid: int) -> bool:

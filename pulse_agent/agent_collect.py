@@ -72,6 +72,8 @@ def collect_bench_health() -> dict:
 				}
 			)
 
+	active_jobs = _collect_active_jobs(workers)
+
 	scheduler_last_run = frappe.db.sql(
 		"select max(last_execution) from `tabScheduled Job Type` where stopped = 0"
 	)
@@ -85,8 +87,42 @@ def collect_bench_health() -> dict:
 		"queue_depths": queue_depths,
 		"failed_job_count": len(failed_jobs),
 		"failed_jobs": failed_jobs,
+		"active_job_count": len(active_jobs),
+		"active_jobs": active_jobs,
 		"scheduler_last_run": str(scheduler_last_run) if scheduler_last_run else None,
 	}
+
+
+def _collect_active_jobs(workers) -> list[dict]:
+	"""What each registered worker is executing right now, if anything —
+	including workers whose OS process is already dead (not just the live
+	ones): a worker that crashed mid-job leaves RQ's Redis hash still
+	pointing at that job, which is exactly the "silently stuck forever"
+	case this exists to catch, not something to filter out.
+
+	``Worker.get_current_job()`` (rq/worker.py) resolves the worker's own
+	``current_job`` Redis field and fetches that Job — ``None`` for an
+	idle worker. ``job.started_at`` is RQ's own timestamp, the real source
+	of truth for how long a job has actually been running (not when this
+	agent happened to first observe it)."""
+	active = []
+	for w in workers:
+		try:
+			job = w.get_current_job()
+		except Exception:
+			continue
+		if not job:
+			continue
+		active.append(
+			{
+				"rq_job_id": job.id,
+				"queue_name": job.origin,
+				"job_name": _job_name(job),
+				"worker_pid": w.pid,
+				"started_at": str(job.started_at) if job.started_at else None,
+			}
+		)
+	return active
 
 
 def _job_name(job) -> str | None:

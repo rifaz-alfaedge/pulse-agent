@@ -1,0 +1,12 @@
+[Unit]
+Description=alfaEdge Pulse Resource & Capacity Monitoring push agent (one-shot, triggered by resource-agent.timer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Same OS user as host-health-agent.service — nothing here needs root
+# either. Filled in by install.py; if installing by hand, replace
+# __PULSE_AGENT_USER__ yourself.
+User=__PULSE_AGENT_USER__
+ExecStart=/usr/bin/python3 /opt/resource-agent/resource_agent.py --config /etc/resource-agent/config.json

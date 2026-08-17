@@ -1,0 +1,11 @@
+{
+	"ingest_url": "https://pulse.example.com/api/method/alfaedge_pulse.host_health.ingest.push_resource_metrics",
+	"api_key": "reuse the same Monitored Host's key as host-health-agent's config.json",
+	"api_secret": "reuse the same Monitored Host's secret as host-health-agent's config.json",
+
+	"timeout_seconds": 10,
+
+	"_mount_include_exclude_are_optional": "edge cases only -- most installs need neither, remove this key and the two below if unused",
+	"mount_include": ["/", "/data"],
+	"mount_exclude": ["/boot"]
+}

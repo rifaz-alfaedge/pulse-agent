@@ -34,8 +34,8 @@ install-app pulse_agent` — `bench execute` checks the target site's
 installed-apps list (`AppNotInstalledError` otherwise), not just whether
 the module is importable, even though this app defines no doctypes of its
 own. Deliberately its own minimal app rather than living inside the
-main `proxmox_monitor` app: the guest fleet runs a mix of Frappe/Python
-versions, and `proxmox_monitor` pins to whatever Python the central Pulse
+main `alfaedge_pulse` app: the guest fleet runs a mix of Frappe/Python
+versions, and `alfaedge_pulse` pins to whatever Python the central Pulse
 site itself happens to run — installing the *whole* dashboard app (and its
 version pin) onto every monitored guest just to run this one function was
 never the right shape.

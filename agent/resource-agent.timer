@@ -1,0 +1,14 @@
+[Unit]
+Description=Run alfaEdge Pulse Resource & Capacity Monitoring push agent every 3 minutes
+
+[Timer]
+# OnUnitActiveSec (not OnCalendar), same reasoning as host-health-agent.timer
+# — each run is spaced from the *end* of the previous one. Looser
+# AccuracySec than Host Health's 1s: load/swap/disk capacity isn't
+# latency-sensitive the way service/worker health is.
+OnBootSec=30s
+OnUnitActiveSec=180s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

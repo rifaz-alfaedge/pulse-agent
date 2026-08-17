@@ -1,5 +1,5 @@
 {
-	"ingest_url": "https://pulse.example.com/api/method/proxmox_monitor.host_health.ingest.push_status",
+	"ingest_url": "https://pulse.example.com/api/method/alfaedge_pulse.host_health.ingest.push_status",
 	"api_key": "generate via the Monitored Host record's 'Generate / Regenerate Agent Key' button",
 	"api_secret": "shown once alongside api_key -- store it here, it cannot be retrieved again",
 

@@ -2,7 +2,10 @@
 # Copyright (c) 2026, AlfaEdge and contributors
 # For license information, please see license.txt
 
-"""Interactive installer for the alfaEdge Pulse Host Health push agent.
+"""Interactive installer for the alfaEdge Pulse Host Health push agent —
+and, optionally right after, the separate Resource & Capacity Monitoring
+collector (resource_agent.py, its own process/config/systemd units, see
+install_resource_agent() below).
 
 Replaces the manual "mkdir, cp, hand-edit config.json, hand-edit the
 systemd unit, daemon-reload, enable" flow documented in this app's own
@@ -50,7 +53,22 @@ SCRIPT_DEST = INSTALL_DIR / "host_health_agent.py"
 SERVICE_DEST = Path("/etc/systemd/system/host-health-agent.service")
 TIMER_DEST = Path("/etc/systemd/system/host-health-agent.timer")
 
-INGEST_PATH_SUFFIX = "/api/method/proxmox_monitor.host_health.ingest.push_status"
+INGEST_PATH_SUFFIX = "/api/method/alfaedge_pulse.host_health.ingest.push_status"
+
+# Resource & Capacity Monitoring is a separate, optional add-on collector
+# (own process, own cadence) — see install_resource_agent() below. Kept as
+# its own script/config/systemd-unit set, same reasoning as
+# resource_agent.py's own docstring: it has zero Frappe/bench dependency,
+# so bundling it onto host-health-agent's 25s cadence would slow that down
+# for no reason.
+RESOURCE_INSTALL_DIR = Path("/opt/resource-agent")
+RESOURCE_CONFIG_DIR = Path("/etc/resource-agent")
+RESOURCE_CONFIG_PATH = RESOURCE_CONFIG_DIR / "config.json"
+RESOURCE_SCRIPT_DEST = RESOURCE_INSTALL_DIR / "resource_agent.py"
+RESOURCE_SERVICE_DEST = Path("/etc/systemd/system/resource-agent.service")
+RESOURCE_TIMER_DEST = Path("/etc/systemd/system/resource-agent.timer")
+
+RESOURCE_INGEST_PATH_SUFFIX = "/api/method/alfaedge_pulse.host_health.ingest.push_resource_metrics"
 
 # Order within each list is the preference when more than one candidate is
 # actually present (Debian/Ubuntu-first naming).
@@ -187,7 +205,15 @@ def get_bench_info(user: str) -> tuple[str | None, str | None]:
 	return str(bench_path), site_name
 
 
-def get_ingest_url() -> str:
+def build_ingest_url(domain: str, use_https: bool, suffix: str) -> str:
+	scheme = "https" if use_https else "http"
+	return f"{scheme}://{domain}{suffix}"
+
+
+def prompt_domain_and_scheme() -> tuple[str, bool]:
+	"""One prompt, reused to build both Host Health's and the optional
+	Resource agent's ingest URL (see build_ingest_url) — same dashboard
+	domain either way, so there's no reason to ask twice."""
 	while True:
 		domain = prompt("Pulse dashboard domain (e.g. pulse.example.com — not the full URL)")
 		if "://" in domain or "/" in domain:
@@ -198,8 +224,7 @@ def get_ingest_url() -> str:
 	use_https = prompt_yes_no("Use https?", default=True)
 	if not use_https:
 		print("WARNING: http transmits this agent's api_key/api_secret unencrypted.")
-	scheme = "https" if use_https else "http"
-	return f"{scheme}://{domain}{INGEST_PATH_SUFFIX}"
+	return domain, use_https
 
 
 def _print_service_table(rows: list[dict]) -> None:
@@ -270,6 +295,114 @@ def stop_timer_if_active() -> None:
 	result = subprocess.run(["systemctl", "is-active", "--quiet", "host-health-agent.timer"])
 	if result.returncode == 0:
 		run_sudo(["systemctl", "stop", "host-health-agent.timer"])
+
+
+def resource_build_config(ingest_url: str, api_key: str, api_secret: str) -> dict:
+	"""No bench_path/site_name/services — resource_agent.py has zero
+	Frappe/bench dependency, unlike host_health_agent.py's config."""
+	return {"ingest_url": ingest_url, "api_key": api_key, "api_secret": api_secret, "timeout_seconds": 10}
+
+
+def resource_existing_install_detected() -> bool:
+	return any(p.exists() for p in (RESOURCE_CONFIG_PATH, RESOURCE_SCRIPT_DEST, RESOURCE_SERVICE_DEST, RESOURCE_TIMER_DEST))
+
+
+def resource_stop_timer_if_active() -> None:
+	result = subprocess.run(["systemctl", "is-active", "--quiet", "resource-agent.timer"])
+	if result.returncode == 0:
+		run_sudo(["systemctl", "stop", "resource-agent.timer"])
+
+
+def resource_write_config(config: dict, user: str) -> None:
+	with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+		json.dump(config, f, indent="\t")
+		f.write("\n")
+		tmp_path = f.name
+	try:
+		run_sudo(["install", "-m", "600", "-o", user, "-g", user, tmp_path, str(RESOURCE_CONFIG_PATH)])
+	finally:
+		os.unlink(tmp_path)
+
+
+def resource_write_agent_script() -> None:
+	src = AGENT_DIR / "resource_agent.py"
+	run_sudo(["install", "-m", "755", str(src), str(RESOURCE_SCRIPT_DEST)])
+
+
+def resource_write_systemd_units(user: str) -> None:
+	template = (AGENT_DIR / "resource-agent.service").read_text()
+	rendered = template.replace("__PULSE_AGENT_USER__", user)
+	with tempfile.NamedTemporaryFile("w", suffix=".service", delete=False) as f:
+		f.write(rendered)
+		tmp_service = f.name
+	try:
+		run_sudo(["install", "-m", "644", tmp_service, str(RESOURCE_SERVICE_DEST)])
+	finally:
+		os.unlink(tmp_service)
+	run_sudo(["install", "-m", "644", str(AGENT_DIR / "resource-agent.timer"), str(RESOURCE_TIMER_DEST)])
+
+
+def resource_test_invocation(user: str) -> bool:
+	print("\nRunning a test push (Resource & Capacity Monitoring)...\n")
+	result = subprocess.run(
+		["sudo", "-u", user, "/usr/bin/python3", str(RESOURCE_SCRIPT_DEST), "--config", str(RESOURCE_CONFIG_PATH)],
+		capture_output=True,
+		text=True,
+	)
+	if result.stdout:
+		print(result.stdout, end="")
+	if result.stderr:
+		print(result.stderr, end="", file=sys.stderr)
+	return result.returncode == 0
+
+
+def install_resource_agent(user: str, api_key: str, api_secret: str, domain: str, use_https: bool) -> None:
+	"""Optional add-on, offered after Host Health is fully installed and
+	enabled — reuses the already-entered user/api_key/api_secret/domain so
+	nothing has to be re-typed. Independent of the Host Health flow above:
+	a failure here (bad test push, systemd error) is reported and left for
+	the admin to retry, but never rolls back or blocks the already-working
+	Host Health installation."""
+	if not prompt_yes_no("\nAlso install the Resource & Capacity Monitoring collector?", default=True):
+		return
+
+	ingest_url = build_ingest_url(domain, use_https, RESOURCE_INGEST_PATH_SUFFIX)
+	config = resource_build_config(ingest_url, api_key, api_secret)
+	print(f"\nResource agent ingest URL: {ingest_url}")
+
+	if resource_existing_install_detected():
+		if not prompt_yes_no("Existing Resource agent installation detected. Overwrite?", default=False):
+			print("Skipped — existing Resource agent installation left untouched.")
+			return
+		resource_stop_timer_if_active()
+
+	try:
+		run_sudo(["mkdir", "-p", str(RESOURCE_INSTALL_DIR), str(RESOURCE_CONFIG_DIR)])
+		resource_write_agent_script()
+		resource_write_config(config, user)
+		resource_write_systemd_units(user)
+		run_sudo(["systemctl", "daemon-reload"])
+	except subprocess.CalledProcessError as e:
+		print(f"\nResource agent install failed: {e}", file=sys.stderr)
+		return
+
+	if not resource_test_invocation(user):
+		print(
+			f"\nResource agent test push failed — its timer was NOT enabled. Fix the issue above, then re-run:\n"
+			f"  sudo -u {user} /usr/bin/python3 {RESOURCE_SCRIPT_DEST} --config {RESOURCE_CONFIG_PATH}"
+		)
+		return
+
+	try:
+		run_sudo(["systemctl", "enable", "--now", "resource-agent.timer"])
+	except subprocess.CalledProcessError as e:
+		print(f"\nResource agent test push succeeded, but enabling the timer failed: {e}", file=sys.stderr)
+		return
+
+	print(
+		"\nResource & Capacity Monitoring agent installed — pushing every ~3 minutes.\n"
+		"Watch it:  sudo journalctl -u resource-agent.service -f"
+	)
 
 
 def write_config(config: dict, user: str) -> None:
@@ -349,7 +482,8 @@ def main() -> int:
 
 	user = get_os_user()
 	bench_path, site_name = get_bench_info(user)
-	ingest_url = get_ingest_url()
+	domain, use_https = prompt_domain_and_scheme()
+	ingest_url = build_ingest_url(domain, use_https, INGEST_PATH_SUFFIX)
 	api_key = prompt("API key (from the Monitored Host record's 'Generate Agent Key' button)")
 	api_secret = getpass.getpass("API secret (hidden): ")
 	while not api_secret:
@@ -402,6 +536,8 @@ def main() -> int:
 		"Watch it:  sudo journalctl -u host-health-agent.service -f\n"
 		"Check the Host Health tab on the dashboard for this host."
 	)
+
+	install_resource_agent(user, api_key, api_secret, domain, use_https)
 	return 0
 
 

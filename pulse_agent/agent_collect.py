@@ -12,13 +12,13 @@ free, the same way ``frappe.utils.doctor`` already introspects workers and
 queues, instead of the agent hand-parsing RQ's Redis key scheme itself.
 
 This lives in its own tiny app (``pulse_agent``), separate from the main
-``proxmox_monitor`` app that runs the central Pulse site, specifically so
+``alfaedge_pulse`` app that runs the central Pulse site, specifically so
 it can ``bench get-app`` cleanly onto every guest in the fleet regardless
 of which Frappe/Python version that guest's own bench runs — see this
 app's own ``pyproject.toml`` for why its ``requires-python`` is
-deliberately permissive where ``proxmox_monitor``'s isn't. Only ``frappe``
+deliberately permissive where ``alfaedge_pulse``'s isn't. Only ``frappe``
 and ``rq`` (both guaranteed present in any bench) are used below — no
-dependency on anything ``proxmox_monitor``-specific, since this needs to
+dependency on anything ``alfaedge_pulse``-specific, since this needs to
 work even against a Monitored Host record that lives on a completely
 different alfaEdge Pulse deployment.
 
